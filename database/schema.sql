@@ -66,11 +66,7 @@ CREATE INDEX idx_servers_guild_id ON servers(guild_id);
 CREATE INDEX idx_conversations_guild_id ON conversations(guild_id);
 CREATE INDEX idx_actions_guild_id ON actions(guild_id);
 CREATE INDEX idx_ai_requests_guild_id ON ai_requests(guild_id);
-```
 
-### Step 2.3: Setup Row Level Security (RLS)
-
-```sql
 -- Enable RLS
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE servers ENABLE ROW LEVEL SECURITY;

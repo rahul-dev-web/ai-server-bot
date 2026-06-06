@@ -9,6 +9,7 @@ const aiRoutes = require('./routes/aiRoutes');
 const discordRoutes = require('./routes/discordRoutes');
 const errorHandler = require('./middleware/errorHandler');
 const { userLimiter, minuteLimiter } = require('./middleware/rateLimit');
+const { initDiscordBot } = require('./bot/discordBot');
 
 const app = express();
 
@@ -37,11 +38,20 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
   console.log(`🚀 Backend running on http://localhost:${PORT}`);
+  initDiscordBot().catch((err) => {
+    console.error('Discord bot failed to start:', err.message);
+  });
 });
 
-// Error handlers to prevent process from crashing
 server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use. Stop the other process first:`);
+    console.error(`   PowerShell: Get-NetTCPConnection -LocalPort ${PORT} | Select OwningProcess`);
+    console.error(`   Then: Stop-Process -Id <PID> -Force`);
+    process.exit(1);
+  }
   console.error('Server error:', err);
+  process.exit(1);
 });
 
 process.on('uncaughtException', (err) => {

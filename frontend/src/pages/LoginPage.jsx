@@ -25,19 +25,19 @@ export default function LoginPage() {
           <h3>✨ Features</h3>
           <ul>
             <li>
-              <span className="feature-icon">⚡</span>
-              <span>AI-powered role creation</span>
+              <span className="feature-icon">📊</span>
+              <span>Server stats, roles & channel info</span>
             </li>
             <li>
-              <span className="feature-icon">🔧</span>
-              <span>Instant channel management</span>
+              <span className="feature-icon">⚡</span>
+              <span>Roles, channels & categories</span>
             </li>
             <li>
               <span className="feature-icon">🔐</span>
-              <span>Smart permission handling</span>
+              <span>Permissions & moderation tools</span>
             </li>
             <li>
-              <span className="feature-icon">📊</span>
+              <span className="feature-icon">📋</span>
               <span>Action history & audit logs</span>
             </li>
           </ul>

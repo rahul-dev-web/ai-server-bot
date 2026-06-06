@@ -1,8 +1,8 @@
-const { supabase } = require('../supabaseClient');
+const { supabaseAdmin } = require('../supabaseClient');
 
 // Get user's servers
 const getUserServers = async (discordId) => {
-  const { data: servers, error } = await supabase
+  const { data: servers, error } = await supabaseAdmin
     .from('servers')
     .select('*')
     .eq('owner_discord_id', discordId);
@@ -19,7 +19,7 @@ const getUserServers = async (discordId) => {
 
 // Store action result
 const storeActionResult = async (guildId, userId, actionType, status, result) => {
-  const { data: action, error } = await supabase
+  const { data: action, error } = await supabaseAdmin
     .from('actions')
     .insert([
       {
@@ -42,7 +42,7 @@ const storeActionResult = async (guildId, userId, actionType, status, result) =>
 
 // Get action history
 const getActionHistory = async (guildId, limit = 50, offset = 0) => {
-  const { data: actions, error, count } = await supabase
+  const { data: actions, error, count } = await supabaseAdmin
     .from('actions')
     .select('*', { count: 'exact' })
     .eq('guild_id', guildId)
@@ -62,7 +62,7 @@ const getActionHistory = async (guildId, limit = 50, offset = 0) => {
 
 // Log audit event
 const logAuditEvent = async (guildId, userDiscordId, action, result) => {
-  const { data: log, error } = await supabase
+  const { data: log, error } = await supabaseAdmin
     .from('audit_logs')
     .insert([
       {

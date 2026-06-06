@@ -1,7 +1,9 @@
 const express = require('express');
+const { PermissionFlagsBits } = require('discord.js');
 const router = express.Router();
 const { getUserServers, getActionHistory } = require('../controllers/discordController');
-const { supabase } = require('../supabaseClient');
+const { executeAction } = require('../controllers/executeController');
+const { isBotReady } = require('../bot/discordBot');
 
 // GET /api/discord/servers
 router.get('/servers', async (req, res) => {
@@ -23,6 +25,39 @@ router.get('/servers', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// POST /api/discord/execute
+router.post('/execute', executeAction);
+
+// GET /api/discord/bot-status
+router.get('/bot-status', (req, res) => {
+  res.json({
+    online: isBotReady(),
+    inviteUrl: getBotInviteUrl()
+  });
+});
+
+// GET /api/discord/bot-invite
+router.get('/bot-invite', (req, res) => {
+  res.json({ url: getBotInviteUrl() });
+});
+
+function getBotInviteUrl() {
+  const clientId = process.env.DISCORD_CLIENT_ID;
+  if (!clientId) return null;
+
+  const permissions =
+    PermissionFlagsBits.ManageRoles |
+    PermissionFlagsBits.ManageChannels |
+    PermissionFlagsBits.KickMembers |
+    PermissionFlagsBits.BanMembers |
+    PermissionFlagsBits.ModerateMembers |
+    PermissionFlagsBits.ManageMessages |
+    PermissionFlagsBits.ViewChannel |
+    PermissionFlagsBits.ReadMessageHistory;
+
+  return `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${permissions}&scope=bot`;
+}
 
 // GET /api/discord/actions/:guildId
 router.get('/actions/:guildId', async (req, res) => {

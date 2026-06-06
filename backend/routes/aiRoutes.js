@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { getAIResponse, validateAIResponse } = require('../controllers/groqController');
-const { storeActionResult, logAuditEvent } = require('../controllers/discordController');
-const { supabase } = require('../supabaseClient');
+const { logAuditEvent } = require('../controllers/discordController');
+const { requiresConfirmation } = require('../middleware/serverSecurity');
+const { supabaseAdmin } = require('../supabaseClient');
 
 // POST /api/ai/process
 router.post('/process', async (req, res) => {
@@ -23,7 +24,7 @@ router.post('/process', async (req, res) => {
 
   try {
     // Get server details
-    const { data: server, error: serverError } = await supabase
+    const { data: server, error: serverError } = await supabaseAdmin
       .from('servers')
       .select('server_name')
       .eq('guild_id', guildId)
@@ -47,7 +48,7 @@ router.post('/process', async (req, res) => {
     }
 
     // Store in database
-    const { error: dbError } = await supabase
+    const { error: dbError } = await supabaseAdmin
       .from('ai_requests')
       .insert([
         {
@@ -71,7 +72,8 @@ router.post('/process', async (req, res) => {
       action: aiResult.response.action,
       parameters: aiResult.response.parameters,
       reason: aiResult.response.reason,
-      tokensUsed: aiResult.tokensUsed
+      tokensUsed: aiResult.tokensUsed,
+      requiresConfirmation: requiresConfirmation(aiResult.response.action)
     });
   } catch (error) {
     console.error('Process error:', error);
@@ -85,7 +87,7 @@ router.get('/history/:guildId', async (req, res) => {
   const { limit = 50, offset = 0 } = req.query;
 
   try {
-    const { data: requests, error, count } = await supabase
+    const { data: requests, error, count } = await supabaseAdmin
       .from('ai_requests')
       .select('*', { count: 'exact' })
       .eq('guild_id', guildId)

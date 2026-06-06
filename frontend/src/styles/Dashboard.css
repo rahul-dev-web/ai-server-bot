@@ -87,7 +87,32 @@
   padding: 40px;
   border-radius: 8px;
   text-align: center;
-  color: #999;
+  color: #666;
+}
+
+.no-server p {
+  margin-bottom: 12px;
+}
+
+.sync-error {
+  color: #d32f2f;
+  font-weight: 500;
+}
+
+.sync-servers-btn {
+  margin-top: 16px;
+  padding: 12px 24px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sync-servers-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
 }
 
 @media (max-width: 1024px) {

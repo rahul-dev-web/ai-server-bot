@@ -1,73 +1,69 @@
 const axios = require('axios');
+const {
+  ALLOWED_ACTIONS,
+  isReadOnlyAction,
+  buildPromptActionList
+} = require('../config/actionRegistry');
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL = 'llama-3.1-8b-instant';
 
-// Structured Prompt Engineering
 const createStructuredPrompt = (userRequest, serverName) => {
   return `You are a Discord Server Management Assistant for server: "${serverName}".
 
 ALLOWED ACTIONS:
-- create_role: Create a new role with specified name and color
-- delete_role: Delete an existing role by name
-- create_channel: Create a text or voice channel
-- delete_channel: Delete a channel by name
-- set_permissions: Modify role permissions
-- ban_member: Ban a user from the server
-- kick_member: Remove a user from the server
+${buildPromptActionList()}
 
-USER REQUEST: "${userRequest}"
+MAPPING HINTS:
+- "total roles", "how many roles", "check roles" → list_roles
+- "server info", "server stats" → get_server_info
+- "list channels" → list_channels
+- "create #channel" → create_channel (strip # from name)
+- kick/ban/timeout member → use parameters.username with exact Discord username (e.g. "yogi"), NOT display name
 
-RESPOND ONLY WITH VALID JSON FORMAT:
+RESPOND ONLY WITH VALID JSON:
 {
   "action": "action_name",
-  "parameters": {
-    "name": "value",
-    "description": "description if needed",
-    "color": 9807270
-  },
-  "reason": "brief explanation of the action"
+  "parameters": { },
+  "reason": "brief explanation"
 }
 
-If request is invalid or dangerous, respond with:
-{
-  "error": true,
-  "message": "Why this action is not allowed"
-}
+If request is invalid, respond with:
+{ "error": true, "message": "Why this is not allowed" }
 
-IMPORTANT:
-- Be concise
-- Return ONLY valid JSON
-- No markdown, no extra text
-- Parameters must match the action`;
+RULES:
+- Return ONLY valid JSON, no markdown
+- Use exact action names from the list above
+- parameters must be an object (use {} if none needed)
+- For read/info requests, prefer list_roles, get_server_info, list_channels`;
 };
 
-// Main Groq Call Function
+const parseAIJson = (raw) => {
+  let cleaned = raw.trim();
+  const fenced = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced) cleaned = fenced[1].trim();
+  const objectMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (objectMatch) cleaned = objectMatch[0];
+  return JSON.parse(cleaned);
+};
+
 const getAIResponse = async (userPrompt, serverName) => {
   try {
-    const systemPrompt = createStructuredPrompt(userPrompt, serverName);
-
     const response = await axios.post(
       GROQ_API_URL,
       {
         model: MODEL,
         messages: [
-          {
-            role: 'system',
-            content: systemPrompt
-          },
-          {
-            role: 'user',
-            content: userPrompt
-          }
+          { role: 'system', content: createStructuredPrompt(userPrompt, serverName) },
+          { role: 'user', content: userPrompt }
         ],
-        temperature: 0.3, // Lower = more deterministic (better for structured output)
-        max_tokens: 500,
+        temperature: 0.2,
+        max_tokens: 600,
         top_p: 0.9
       },
       {
         headers: {
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
           'Content-Type': 'application/json'
         }
       }
@@ -76,11 +72,10 @@ const getAIResponse = async (userPrompt, serverName) => {
     const aiResponse = response.data.choices[0].message.content;
     const tokensUsed = response.data.usage.total_tokens;
 
-    // Parse JSON from response
     let parsedResponse;
     try {
-      parsedResponse = JSON.parse(aiResponse);
-    } catch (e) {
+      parsedResponse = parseAIJson(aiResponse);
+    } catch {
       parsedResponse = {
         error: true,
         message: 'Invalid JSON response from AI',
@@ -91,7 +86,7 @@ const getAIResponse = async (userPrompt, serverName) => {
     return {
       success: true,
       response: parsedResponse,
-      tokensUsed: tokensUsed,
+      tokensUsed,
       rawResponse: aiResponse
     };
   } catch (error) {
@@ -103,47 +98,44 @@ const getAIResponse = async (userPrompt, serverName) => {
   }
 };
 
-// Validate AI Response
 const validateAIResponse = (response) => {
   if (response.error) {
+    return { valid: false, reason: response.message };
+  }
+
+  if (!ALLOWED_ACTIONS.includes(response.action)) {
     return {
       valid: false,
-      reason: response.message
+      reason: `Action "${response.action}" is not allowed. Try: list_roles, get_server_info, create_channel, etc.`
     };
   }
 
-  // List of allowed actions
-  const allowedActions = [
-    'create_role',
-    'delete_role',
-    'create_channel',
-    'delete_channel',
-    'set_permissions',
-    'ban_member',
-    'kick_member'
-  ];
-
-  if (!allowedActions.includes(response.action)) {
-    return {
-      valid: false,
-      reason: `Action "${response.action}" is not allowed`
-    };
+  if (response.parameters === undefined || response.parameters === null) {
+    response.parameters = {};
   }
 
-  if (!response.parameters || typeof response.parameters !== 'object') {
-    return {
-      valid: false,
-      reason: 'Missing or invalid parameters'
-    };
+  if (typeof response.parameters !== 'object' || Array.isArray(response.parameters)) {
+    return { valid: false, reason: 'parameters must be an object' };
   }
 
-  return {
-    valid: true
-  };
+  if (!isReadOnlyAction(response.action)) {
+    const needsName = [
+      'create_role', 'delete_role', 'rename_role', 'update_role',
+      'create_channel', 'delete_channel', 'rename_channel',
+      'create_category', 'delete_category', 'get_role_info', 'get_channel_info',
+      'set_channel_topic', 'set_slowmode', 'purge_messages'
+    ];
+    if (needsName.includes(response.action) && !response.parameters.name && !response.parameters.role) {
+      return { valid: false, reason: `Action "${response.action}" requires a name parameter` };
+    }
+  }
+
+  return { valid: true };
 };
 
 module.exports = {
   getAIResponse,
   createStructuredPrompt,
-  validateAIResponse
+  validateAIResponse,
+  parseAIJson
 };

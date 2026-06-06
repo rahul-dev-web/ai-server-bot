@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import '../styles/AuthCallback.css';
@@ -7,13 +7,16 @@ export default function AuthCallbackPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [error, setError] = React.useState(null);
+  const handledRef = useRef(false);
 
   useEffect(() => {
+    if (handledRef.current) return;
+
     const code = searchParams.get('code');
-    const error = searchParams.get('error');
-    
-    if (error) {
-      setError(`Discord auth error: ${error}`);
+    const oauthError = searchParams.get('error');
+
+    if (oauthError) {
+      setError(`Discord auth error: ${oauthError}`);
       setTimeout(() => navigate('/'), 3000);
       return;
     }
@@ -24,31 +27,43 @@ export default function AuthCallbackPage() {
       return;
     }
 
+    // Already logged in from a previous callback (React StrictMode runs effects twice)
+    const existingUser = localStorage.getItem('user');
+    if (existingUser) {
+      navigate('/dashboard', { replace: true });
+      return;
+    }
+
     const authenticate = async () => {
+      handledRef.current = true;
+
       try {
         const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
-        const frontendUrl = 'http://localhost:5173' || window.location.origin;
-        console.log('Backend URL:', backendUrl);
-        console.log('Frontend URL:', frontendUrl);
-        console.log('Received code:', code);
+
         const response = await axios.get(
-          `${frontendUrl}/api/auth/discord/callback?code=${code}`
+          `${backendUrl}/api/auth/discord/callback?code=${code}`
         );
 
         if (response.data.success) {
-          // Store user data
           localStorage.setItem('user', JSON.stringify(response.data.user));
           localStorage.setItem('token', response.data.accessToken);
           localStorage.setItem('guilds', JSON.stringify(response.data.guilds));
 
-          // Redirect to dashboard
-          navigate('/dashboard');
+          navigate('/dashboard', { replace: true });
         } else {
+          handledRef.current = false;
           setError(response.data.error || 'Authentication failed');
         }
-      } catch (error) {
-        console.error('Auth error:', error);
-        setError(error.response?.data?.error || 'Authentication failed. Please try again.');
+      } catch (err) {
+        // If first request already succeeded, don't kick user back to login
+        if (localStorage.getItem('user')) {
+          navigate('/dashboard', { replace: true });
+          return;
+        }
+
+        handledRef.current = false;
+        console.error('Auth error:', err);
+        setError(err.response?.data?.error || 'Authentication failed. Please try again.');
         setTimeout(() => navigate('/'), 3000);
       }
     };

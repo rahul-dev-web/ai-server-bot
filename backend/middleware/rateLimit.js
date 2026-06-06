@@ -13,9 +13,12 @@ const userLimiter = rateLimit({
     return req.path === '/api/health';
   },
   keyGenerator: (req, res) => {
-    // Use user ID if provided in query, otherwise use IP
-    if (req.query.userId) {
-      return `user-${req.query.userId}`;
+    const userId =
+      req.query.userId ||
+      req.body?.userId ||
+      req.body?.discordId;
+    if (userId) {
+      return `user-${userId}`;
     }
     return `ip-${ipKeyGenerator(req)}`;
   }

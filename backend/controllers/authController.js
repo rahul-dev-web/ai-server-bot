@@ -3,10 +3,74 @@ const { supabase, supabaseAdmin } = require('../supabaseClient');
 
 const DISCORD_API = 'https://discord.com/api/v10';
 
+const canManageGuild = (guild) => {
+  if (guild.owner === true) return true;
+
+  try {
+    const perms = BigInt(guild.permissions ?? '0');
+    const ADMINISTRATOR = 0x8n;
+    const MANAGE_GUILD = 0x20n;
+    const MANAGE_CHANNELS = 0x10n;
+    const MANAGE_ROLES = 0x10000000n;
+
+    return (
+      (perms & ADMINISTRATOR) === ADMINISTRATOR ||
+      (perms & MANAGE_GUILD) === MANAGE_GUILD ||
+      (perms & MANAGE_CHANNELS) === MANAGE_CHANNELS ||
+      (perms & MANAGE_ROLES) === MANAGE_ROLES
+    );
+  } catch {
+    return false;
+  }
+};
+
+const fetchManageableGuilds = async (accessToken) => {
+  const guildsResponse = await axios.get(`${DISCORD_API}/users/@me/guilds`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  const allGuilds = guildsResponse.data;
+  const manageable = allGuilds.filter(canManageGuild);
+
+  console.log(
+    `Discord guilds: ${allGuilds.length} total, ${manageable.length} manageable`
+  );
+
+  return manageable;
+};
+
+const storeGuildsInDb = async (guilds, discordId) => {
+  for (const guild of guilds) {
+    const { error } = await supabaseAdmin
+      .from('servers')
+      .upsert(
+        {
+          guild_id: guild.id,
+          owner_discord_id: discordId,
+          server_name: guild.name,
+          server_icon: guild.icon
+        },
+        { onConflict: 'guild_id' }
+      );
+
+    if (error) {
+      console.error(`Failed to store guild ${guild.name}:`, error.message);
+    }
+  }
+};
+
+const formatGuilds = (guilds) =>
+  guilds.map((g) => ({
+    id: g.id,
+    name: g.name,
+    icon: g.icon
+  }));
+
 // Exchange Discord code for access token and user info
 const discordCallback = async (code) => {
   try {
-    // Step 1: Exchange code for token
     const tokenResponse = await axios.post(
       `${DISCORD_API}/oauth2/token`,
       new URLSearchParams({
@@ -26,7 +90,6 @@ const discordCallback = async (code) => {
     const accessToken = tokenResponse.data.access_token;
     const refreshToken = tokenResponse.data.refresh_token;
 
-    // Step 2: Get user info from Discord
     const userResponse = await axios.get(`${DISCORD_API}/users/@me`, {
       headers: {
         Authorization: `Bearer ${accessToken}`
@@ -35,16 +98,8 @@ const discordCallback = async (code) => {
 
     const { id: discordId, username, avatar, email } = userResponse.data;
 
-    // Step 3: Get user's guilds
-    const guildsResponse = await axios.get(`${DISCORD_API}/users/@me/guilds`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      }
-    });
+    const guilds = await fetchManageableGuilds(accessToken);
 
-    const guilds = guildsResponse.data.filter(g => (g.permissions & 0x08) === 0x08); // ADMIN permission
-
-    // Step 4: Upsert user in database (using admin client to bypass RLS)
     const { data: user, error: userError } = await supabaseAdmin
       .from('users')
       .upsert(
@@ -63,20 +118,7 @@ const discordCallback = async (code) => {
       throw new Error(`Database error: ${userError.message}`);
     }
 
-    // Step 5: Store guilds in database (using admin client)
-    for (const guild of guilds) {
-      await supabaseAdmin
-        .from('servers')
-        .upsert(
-          {
-            guild_id: guild.id,
-            owner_discord_id: discordId,
-            server_name: guild.name,
-            server_icon: guild.icon
-          },
-          { onConflict: 'guild_id' }
-        );
-    }
+    await storeGuildsInDb(guilds, discordId);
 
     return {
       success: true,
@@ -89,11 +131,7 @@ const discordCallback = async (code) => {
       },
       accessToken: accessToken,
       refreshToken: refreshToken,
-      guilds: guilds.map(g => ({
-        id: g.id,
-        name: g.name,
-        icon: g.icon
-      }))
+      guilds: formatGuilds(guilds)
     };
   } catch (error) {
     console.error('Discord Auth Error:', error.response?.data || error.message);
@@ -104,7 +142,31 @@ const discordCallback = async (code) => {
   }
 };
 
-// Get user from Discord ID
+const refreshGuilds = async (accessToken) => {
+  try {
+    const userResponse = await axios.get(`${DISCORD_API}/users/@me`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    const { id: discordId } = userResponse.data;
+    const guilds = await fetchManageableGuilds(accessToken);
+    await storeGuildsInDb(guilds, discordId);
+
+    return {
+      success: true,
+      guilds: formatGuilds(guilds)
+    };
+  } catch (error) {
+    console.error('Refresh guilds error:', error.response?.data || error.message);
+    return {
+      success: false,
+      error: error.response?.data?.message || error.message
+    };
+  }
+};
+
 const getUserByDiscordId = async (discordId) => {
   const { data: user, error } = await supabase
     .from('users')
@@ -121,5 +183,6 @@ const getUserByDiscordId = async (discordId) => {
 
 module.exports = {
   discordCallback,
+  refreshGuilds,
   getUserByDiscordId
 };
